@@ -119,6 +119,12 @@ def run(
                 tracker_list[i].model.warmup()
     outputs = [None] * nr_sources
 
+    # ID and color dictionary
+    id_color_dict = {}
+
+    # ID and frequency dictionary
+    id_frequency_dict = {}
+
     # Run tracking
     #model.warmup(imgsz=(1 if pt else nr_sources, 3, *imgsz))  # warmup
     dt, seen = [0.0, 0.0, 0.0, 0.0], 0
@@ -215,7 +221,19 @@ def run(
                             id = int(id)  # integer id
                             label = None if hide_labels else (f'{id} {names[c]}' if hide_conf else \
                                 (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
-                            color = colors(c, True)
+
+                            color = None
+                            if id in id_color_dict:
+                                color = id_color_dict[id]
+                            else:
+                                color = tuple(np.random.choice(range(256), size=3).tolist())
+                                id_color_dict[id] = color
+
+                            if id in id_frequency_dict:
+                                id_frequency_dict[id] += 1
+                            else:
+                                id_frequency_dict[id] = 1
+
                             annotator.box_label(bboxes, label, color=color)
 
                             if save_trajectories and tracking_method == 'strongsort':
@@ -263,6 +281,26 @@ def run(
         LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
     if update:
         strip_optimizer(yolo_weights)  # update model (to fix SourceChangeWarning)
+
+    # Print the length of ID dictionary
+    print("Before processed", len(id_frequency_dict))
+    print("id_frequency_dict", id_frequency_dict)
+
+    # Remove outliers
+    without_outliers, min_ = remove_outliers(id_frequency_dict)
+    print("After processed", without_outliers.size)
+    print("min_", min_)
+
+
+def remove_outliers(frequency_dict):
+    frequency_ndarray = np.array(list(frequency_dict.values()))
+
+    p75, p25 = np.percentile(frequency_ndarray, [75, 25])
+    iqr = p75 - p25
+    min_ = p25 - 1.5 * iqr
+
+    without_outliers = frequency_ndarray[frequency_ndarray >= min_]
+    return without_outliers, min_
 
 
 def parse_opt():
